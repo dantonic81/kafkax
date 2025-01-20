@@ -20,13 +20,14 @@ BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 KAFKA_TOPIC = "twitter_tweets"
 KAFKA_BOOTSTRAP_SERVER = "localhost:9092"
 
-# Kafka producer configuration with idempotence enabled
 producer_config = {
     'bootstrap.servers': KAFKA_BOOTSTRAP_SERVER,
     'enable.idempotence': True,  # Enable idempotence
     'acks': 'all',              # Ensure full acknowledgment
-    'retries': 5,               # Configure retries (default is 2, but can increase)
+    'retries': 5,               # Configure retries
     'max.in.flight.requests.per.connection': 5,  # Prevent reordering
+    'batch.num.messages': 1000,  # Max number of messages per batch
+    'linger.ms': 10,            # Delay to batch messages (in milliseconds)
 }
 
 producer = Producer(producer_config)
