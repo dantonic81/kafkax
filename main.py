@@ -27,7 +27,8 @@ producer_config = {
     'retries': 5,               # Configure retries
     'max.in.flight.requests.per.connection': 5,  # Prevent reordering
     'batch.num.messages': 1000,  # Max number of messages per batch
-    'linger.ms': 10,            # Delay to batch messages (in milliseconds)
+    'linger.ms': 20,            # Delay to batch messages (in milliseconds)
+    'compression.type': 'snappy',  # Use Snappy compression
 }
 
 producer = Producer(producer_config)
