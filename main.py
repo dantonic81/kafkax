@@ -61,9 +61,10 @@ def fetch_tweets():
                     value=json.dumps(tweet_data),
                     callback=delivery_report
                 )
-                producer.flush()
             except Exception as e:
                 print(f"Error sending tweet to Kafka: {e}")
+
+        producer.flush()
         # Add delay to avoid rate limits
         time.sleep(15)  # Adjust this delay as needed
     except tweepy.errors.TooManyRequests as e:
