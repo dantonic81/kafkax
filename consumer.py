@@ -34,14 +34,21 @@ consumer.subscribe(['twitter_tweets'])
 
 def load_to_elasticsearch(messages):
     """
-    Bulk loads messages into Elasticsearch.
+    Bulk loads messages into Elasticsearch with idempotency.
     """
     actions = []
     for message in messages:
         try:
+            tweet = json.loads(message.value())
+            tweet_id = tweet.get("id")  # Use "id" instead of "id_str"
+            if not tweet_id:
+                print(f"Skipping message without unique ID: {message.value()}")
+                continue
+
             actions.append({
                 "_index": INDEX_NAME,
-                "_source": json.loads(message.value())
+                "_id": tweet_id,  # Ensure idempotency
+                "_source": tweet
             })
         except json.JSONDecodeError:
             print(f"Skipping malformed message: {message.value()}")
@@ -52,6 +59,8 @@ def load_to_elasticsearch(messages):
             print(f"Successfully indexed {len(actions)} messages into Elasticsearch.")
         except Exception as e:
             print(f"Error indexing messages: {e}")
+
+
 
 def consume_and_index():
     """
@@ -68,6 +77,8 @@ def consume_and_index():
             # Load messages into Elasticsearch
             load_to_elasticsearch(messages)
 
+            # Commit offsets only after successful processing
+            consumer.commit()
     except KeyboardInterrupt:
         print("Consumer interrupted. Exiting...")
     except Exception as e:

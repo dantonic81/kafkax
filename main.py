@@ -5,76 +5,67 @@ import json
 import os
 import time
 
-
 load_dotenv()
 
 # Twitter API credentials
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_KEY_SECRET")
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
-ACCESS_TOKEN_SECRET = os.getenv("ACCESS_TOKEN_SECRET")
-# Use Bearer Token for Streaming API
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 
 # Kafka configuration
 KAFKA_TOPIC = "twitter_tweets"
 KAFKA_BOOTSTRAP_SERVER = "localhost:9092"
 
-producer_config = {
+producer = Producer({
     'bootstrap.servers': KAFKA_BOOTSTRAP_SERVER,
-    'enable.idempotence': True,  # Enable idempotence
-    'acks': 'all',              # Ensure full acknowledgment
-    'retries': 5,               # Configure retries
-    'max.in.flight.requests.per.connection': 5,  # Prevent reordering
-    'batch.num.messages': 1000,  # Max number of messages per batch
-    'linger.ms': 20,            # Delay to batch messages (in milliseconds)
-    'compression.type': 'snappy',  # Use Snappy compression
-}
+    'enable.idempotence': True,
+    'acks': 'all',
+    'retries': 5,
+    'max.in.flight.requests.per.connection': 5,
+    'batch.num.messages': 1000,
+    'linger.ms': 20,
+    'compression.type': 'snappy',
+})
 
-producer = Producer(producer_config)
 
 def delivery_report(err, msg):
-    if err is not None:
-        print(f"Delivery failed for record {msg.key()}: {err}")
+    if err:
+        print(f"Delivery failed: {err}")
     else:
-        print(f"Record {msg.key()} successfully delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
+        print(f"Delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
 
-def fetch_tweets():
+
+def fetch_tweets(max_requests=10):
     client = tweepy.Client(bearer_token=BEARER_TOKEN)
+    query = "Python -is:retweet"
 
-    query = "Python -is:retweet"  # Adjust query as needed
-    try:
-        tweets = client.search_recent_tweets(query=query, tweet_fields=["id", "text", "created_at"], max_results=10)
-        for tweet in tweets.data:
-            try:
-                # Prepare tweet data
-                tweet_data = {
-                    "id": tweet.id,
-                    "text": tweet.text,
-                    "created_at": tweet.created_at.isoformat()  # Convert datetime to string
-                }
+    # Limit the number of requests per run
+    requests_sent = 0
 
-                # Send tweet data to Kafka
-                producer.produce(
-                    KAFKA_TOPIC,
-                    key=str(tweet.id),
-                    value=json.dumps(tweet_data),
-                    callback=delivery_report
-                )
-            except Exception as e:
-                print(f"Error sending tweet to Kafka: {e}")
+    while requests_sent < max_requests:
+        try:
+            tweets = client.search_recent_tweets(query=query, tweet_fields=["id", "text", "created_at"],
+                                                 max_results=10)  # Fetch 5 tweets per request
+            if tweets.data:
+                for tweet in tweets.data:
+                    tweet_data = {
+                        "id": tweet.id,
+                        "text": tweet.text,
+                        "created_at": tweet.created_at.isoformat(),
+                    }
+                    producer.produce(KAFKA_TOPIC, key=str(tweet.id), value=json.dumps(tweet_data),
+                                     callback=delivery_report)
 
-        producer.flush()
-        # Add delay to avoid rate limits
-        time.sleep(15)  # Adjust this delay as needed
-    except tweepy.errors.TooManyRequests as e:
-        print("Rate limit reached. Waiting for reset...")
-        reset_time = int(e.response.headers.get("x-rate-limit-reset", time.time() + 60))
-        wait_time = reset_time - int(time.time())
-        time.sleep(wait_time)
-        fetch_tweets()  # Retry after the wait
+            producer.flush()
+            requests_sent += 1
+            print(f"Request {requests_sent}/{max_requests} completed.")
+            time.sleep(30)  # Increase sleep time between requests
 
+        except tweepy.errors.TooManyRequests as e:
+            reset_time = int(e.response.headers.get("x-rate-limit-reset", time.time() + 60))
+            wait_time = reset_time - int(time.time())
+            print(f"Rate limit reached. Waiting for {wait_time} seconds before retrying.")
+            time.sleep(wait_time)  # Wait until the rate limit resets
+            fetch_tweets(max_requests - requests_sent)  # Retry the remaining requests
 
 
 if __name__ == "__main__":
-    fetch_tweets()
+    fetch_tweets(max_requests=10)  # Limit to 10 requests
